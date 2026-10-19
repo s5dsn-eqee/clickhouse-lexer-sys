@@ -26,6 +26,56 @@ jobs:
       - run: cargo doc --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
+      - name: Run a consumer of the packaged crate
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          probe=$(mktemp -d)
+          trap 'rm -rf "$probe"' EXIT
+          cargo package -p clickhouse-lexer-sys --target-dir "$probe/package-target" -j 2
+          tar -xzf "$probe"/package-target/package/clickhouse-lexer-sys-*.crate -C "$probe"
+          crate=("$probe"/clickhouse-lexer-sys-*)
+          mkdir -p "$probe/consumer/src"
+          cat > "$probe/consumer/Cargo.toml" <<TOML
+          [package]
+          name = "packaged-consumer"
+          version = "0.0.0"
+          edition = "2021"
+
+          [dependencies]
+          clickhouse-lexer-sys = { path = "${crate[0]}" }
+          TOML
+          cat > "$probe/consumer/src/main.rs" <<'RS'
+          use clickhouse_lexer_sys::{Lexer, TokenKind};
+
+          fn main() {
+              assert!(Lexer::new("SELECT 'привет'")
+                  .filter(|token| token.kind.is_significant())
+                  .map(|token| (token.kind, token.text))
+                  .eq([
+                      (TokenKind::BareWord, b"SELECT".as_slice()),
+                      (TokenKind::StringLiteral, "'привет'".as_bytes()),
+                  ]));
+              let mut raw = Lexer::new("!1");
+              for expected in [
+                  (TokenKind::ErrorSingleExclamationMark, 0, 1),
+                  (TokenKind::Number, 1, 2),
+                  (TokenKind::EndOfStream, 2, 2),
+              ] {
+                  let token = raw.next_token();
+                  assert_eq!((token.kind, token.begin, token.end), expected);
+              }
+          }
+          RS
+          cd "$probe/consumer"
+          cargo run --release --target-dir "$probe/consumer-target" -j 2
+          case "$RUNNER_OS" in
+            Linux) linkage=$(ldd "$probe/consumer-target/release/packaged-consumer") ;;
+            macOS) linkage=$(otool -L "$probe/consumer-target/release/packaged-consumer") ;;
+            *) exit 1 ;;
+          esac
+          printf '%s\n' "$linkage"
+          [[ "$linkage" != *libstdc++* && "$linkage" != *libc++* ]]
       - if: matrix.os == 'ubuntu-latest'
         run: cargo publish --dry-run
 

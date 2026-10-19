@@ -71,10 +71,7 @@ The [Sync workflow](.github/workflows/sync.yml) runs weekly:
    stops if nothing changed.
 2. It bumps the patch version, runs `cargo test`, and opens a pull request.
 
-[CI](.github/workflows/ci.yml) checks every change on Linux and macOS: the Rust tests,
-clippy, rustfmt and docs, that `upstream/` is byte-identical to the recorded
-release, and that clickhouse-lexer's own test suite passes when built from the
-shipped sources.
+[CI](.github/workflows/ci.yml) checks formatting, lints, tests, docs and an executable consumer of the packaged crate on Linux and macOS. It also verifies the shipped `upstream/` sources against the recorded release and runs their test suite.
 
 To release after merging a sync pull request, push the matching tag:
 
