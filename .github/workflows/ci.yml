@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 2
 
 jobs:
   test:
@@ -15,17 +16,38 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - run: cargo fmt --all --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
-      - run: cargo doc --no-deps
+      - run: cargo fmt -p clickhouse-lexer-sys -- --check
+      - run: cargo clippy -p clickhouse-lexer-sys --all-targets -- -D warnings
+      - run: cargo test -p clickhouse-lexer-sys --release
+      - run: cargo doc -p clickhouse-lexer-sys --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
+      - name: Check target-specific clang override
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          probe=$(mktemp -d)
+          trap 'rm -rf "$probe"' EXIT
+          export CXX_PROBE_LOG="$probe/compiler.log"
+          : > "$CXX_PROBE_LOG"
+          cat > "$probe/clang++" <<'SH'
+          #!/bin/sh
+          printf 'CXX-OVERRIDE %s\n' "$*" >> "$CXX_PROBE_LOG"
+          exec clang++ "$@"
+          SH
+          chmod +x "$probe/clang++"
+          host=$(rustc -vV | grep '^host:' | cut -d ' ' -f 2)
+          env -u CXX "CXX_${host//-/_}=$probe/clang++" \
+            CARGO_TARGET_DIR="$probe/target" \
+            cargo test -p clickhouse-lexer-sys --release --test lexer \
+            tokenizes_a_basic_query -- --exact
+          grep ' -c ' "$CXX_PROBE_LOG" | grep -F Lexer.cpp
       - if: matrix.os == 'ubuntu-latest'
         run: cargo publish --dry-run
 

@@ -13,8 +13,7 @@ standalone build ClickHouse maintains for its web UI, and compiled natively at b
 time. `TokenKind` is generated from the same `Lexer.h`, so the token numbering can
 never drift from the compiled lexer.
 
-Requires `clang++` (ClickHouse only supports clang; set `CXX` to point at it if it
-is not on `PATH`). There is no C++ runtime dependency.
+Requires a clang-compatible C++ compiler selected through `cc`'s standard compiler environment variables, including `CXX` and target-specific overrides. A non-clang selection falls back to `clang++` on `PATH`. There is no C++ runtime dependency.
 
 Besides the raw bindings in `ffi`, the crate ships a minimal safe wrapper, `Lexer`,
 so a separate wrapper crate is not needed for the common case.
