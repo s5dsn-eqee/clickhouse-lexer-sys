@@ -219,6 +219,32 @@ fn next_token_exposes_end_of_stream() {
 }
 
 #[test]
+fn next_token_continues_after_an_error() {
+    let mut lexer = Lexer::new("!1");
+    for (kind, begin, end) in [
+        (TokenKind::ErrorSingleExclamationMark, 0, 1),
+        (TokenKind::Number, 1, 2),
+        (TokenKind::EndOfStream, 2, 2),
+    ] {
+        let token = lexer.next_token();
+        assert_eq!((token.kind, token.begin, token.end), (kind, begin, end));
+    }
+}
+
+#[test]
+fn next_token_repeats_query_size_errors() {
+    let mut lexer = Lexer::with_max_query_size("123", 1);
+    let first = lexer.next_token();
+    assert_eq!(first.kind, TokenKind::ErrorMaxQuerySizeExceeded);
+    assert_eq!((first.begin, first.end), (0, 3));
+    for _ in 0..2 {
+        let repeated = lexer.next_token();
+        assert_eq!(repeated.kind, first.kind);
+        assert_eq!((repeated.begin, repeated.end), (3, 3));
+    }
+}
+
+#[test]
 fn accepts_bytes_that_are_not_utf8() {
     let tokens: Vec<_> = Lexer::new(b"SELECT '\xff'").collect();
     let literal = tokens.last().unwrap();
