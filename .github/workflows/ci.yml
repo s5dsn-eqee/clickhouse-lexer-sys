@@ -60,3 +60,21 @@ jobs:
           cd "$RUNNER_TEMP/clickhouse-lexer"
           npm run build
           npm test
+
+  msrv:
+    name: Rust 1.74.0
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.74.0
+      - run: cargo test -p clickhouse-lexer-sys --release -j 2
+
+  minimal-dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo -Z direct-minimal-versions update
+      - run: cargo test -p clickhouse-lexer-sys --release --locked -j 2
