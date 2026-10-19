@@ -232,3 +232,104 @@ fn lexer_is_send() {
     let input = String::from("SELECT 1");
     assert_send(&Lexer::new(&input));
 }
+
+#[test]
+fn byte_inputs_preserve_token_invariants() {
+    // Heap-backed inputs expose native overreads to ASan.
+    let check = |input: Box<[u8]>| {
+        let mut lexer = Lexer::new(&input);
+        let mut offset = 0;
+        for _ in 0..=input.len() {
+            let Some(token) = lexer.next() else {
+                assert_eq!(offset, input.len(), "{input:?}");
+                return;
+            };
+            assert_eq!(token.begin, offset, "{input:?}");
+            assert!(
+                token.begin <= token.end && token.end <= input.len(),
+                "{input:?}"
+            );
+            assert_eq!(token.text, &input[token.begin..token.end], "{input:?}");
+            if token.kind.is_error() {
+                assert_eq!(lexer.next(), None, "{input:?}");
+                return;
+            }
+            assert!(token.end > offset, "{input:?}");
+            offset = token.end;
+        }
+        panic!("iterator did not terminate for {input:?}");
+    };
+
+    for byte in 0..=u8::MAX {
+        check(Box::new([byte]));
+    }
+    for first in 0..=u8::MAX {
+        for second in 0..=u8::MAX {
+            check(Box::new([first, second]));
+        }
+    }
+    for input in [
+        b"SELECT\0 1".as_slice(),
+        b"'\0'",
+        b"a \xff z",
+        b"\xe2\x80\x98",
+        b"\xf0\x9f\x92",
+        b"'unterminated",
+        b"\"unterminated",
+        b"`unterminated",
+        b"\xe2\x80\x98ab\xe2",
+        b"\xe2\x80\x9cab\xe2\x80",
+        b"'escaped\\'",
+        b"/* /* nested */",
+        b"$tag$unfinished",
+        b"-- \xff\0",
+    ] {
+        check(input.into());
+    }
+    for seed in [1_u32, 0x12345678, 0x9e3779b9, u32::MAX] {
+        let mut state = seed;
+        let mut next_byte = || {
+            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            state.to_be_bytes()[0]
+        };
+        for length in [15, 16, 17, 63, 64, 65, 255, 256] {
+            let mut input = Vec::with_capacity(length);
+            input.extend((0..length).map(|_| next_byte()));
+            check(input.into_boxed_slice());
+
+            let mut quoted = Vec::with_capacity(length + 2);
+            quoted.push(b'\'');
+            quoted.extend((0..length).map(|_| next_byte() | 0x80));
+            quoted.push(b'\'');
+            check(quoted.into_boxed_slice());
+        }
+    }
+}
+
+#[test]
+fn query_size_limits_follow_token_end_boundaries() {
+    for (input, kind) in [
+        (b"x 123".as_slice(), TokenKind::Number),
+        (b"x '\xc3\xa9'", TokenKind::StringLiteral),
+        (b"x /*x*/", TokenKind::Comment),
+    ] {
+        let input: Box<[u8]> = input.into();
+        let end = input.len();
+        for limit in [end - 1, end, end + 1] {
+            let mut lexer = Lexer::with_max_query_size(&input, limit);
+            lexer.next_token();
+            lexer.next_token();
+            let token = lexer.next_token();
+            let expected = if limit < end {
+                TokenKind::ErrorMaxQuerySizeExceeded
+            } else {
+                kind
+            };
+            assert_eq!(
+                (token.kind, token.begin, token.end, token.text),
+                (expected, 2, end, &input[2..]),
+                "input {input:?}, limit {limit}"
+            );
+        }
+    }
+}

@@ -29,6 +29,23 @@ jobs:
       - if: matrix.os == 'ubuntu-latest'
         run: cargo publish --dry-run
 
+  native-sanitizers:
+    name: Native ASan and UBSan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CXX: clang++
+      CXXFLAGS: -fsanitize=address,undefined -fno-omit-frame-pointer
+      RUSTFLAGS: -C linker=clang -C link-arg=-fsanitize=address,undefined
+      RUSTDOCFLAGS: -C linker=clang -C link-arg=-fsanitize=address,undefined
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-rt-dev
+      - run: cargo test -p clickhouse-lexer-sys --release -j 2
+
   # The shipped sources must be exactly what the recorded clickhouse-lexer release
   # ships, and must pass that release's own test suite.
   upstream:
