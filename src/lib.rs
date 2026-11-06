@@ -3,6 +3,7 @@
 
 use std::ffi::{c_char, c_void};
 use std::fmt;
+use std::iter::FusedIterator;
 use std::str::Utf8Error;
 
 /// The C API of `upstream/clickhouse_lexer.h`, as compiled by this crate.
@@ -99,7 +100,8 @@ impl<'a> Lexer<'a> {
     }
 
     /// A lexer over `input` that reports `ErrorMaxQuerySizeExceeded` once a token ends
-    /// past `max_query_size` bytes; `0` means unlimited.
+    /// past `max_query_size` bytes; `0` means unlimited. Upstream caps the limit at
+    /// 1 000 000 000 bytes, so larger values, `usize::MAX` included, act as that cap.
     pub fn with_max_query_size(
         input: &'a (impl AsRef<[u8]> + ?Sized),
         max_query_size: usize,
@@ -134,7 +136,12 @@ impl<'a> Lexer<'a> {
 
     /// The next token straight from the lexer, including `EndOfStream`.
     ///
-    /// Error tokens do not stop subsequent calls.
+    /// Error tokens do not stop subsequent calls, but the tokens after an error may
+    /// overlap it instead of tiling the input. Without a query size limit, every call
+    /// past the end of the input returns `EndOfStream`. Once a token ends past
+    /// `max_query_size`, that call and every later one, at the end of the input too,
+    /// return `ErrorMaxQuerySizeExceeded`, so `EndOfStream` never comes; stop on
+    /// [`TokenKind::is_error`] instead.
     pub fn next_token(&mut self) -> Token<'a> {
         let mut begin = std::ptr::null();
         let mut end = std::ptr::null();
@@ -196,6 +203,9 @@ impl<'a> Iterator for Lexer<'a> {
         Some(token)
     }
 }
+
+// `done` keeps `next` returning `None` once it has.
+impl FusedIterator for Lexer<'_> {}
 
 impl fmt::Debug for Lexer<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

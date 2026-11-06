@@ -232,6 +232,21 @@ fn next_token_continues_after_an_error() {
 }
 
 #[test]
+fn next_token_may_overlap_an_error_token() {
+    // The unclosed `‘` string covers the whole input, but upstream's
+    // quotedStringWithUnicodeQuotes leaves the position at the last 0xE2 byte.
+    let mut lexer = Lexer::new(b"\xe2\x80\x98ab\xe2");
+    for (kind, begin, end) in [
+        (TokenKind::ErrorSingleQuoteIsNotClosed, 0, 6),
+        (TokenKind::Error, 5, 6),
+        (TokenKind::EndOfStream, 6, 6),
+    ] {
+        let token = lexer.next_token();
+        assert_eq!((token.kind, token.begin, token.end), (kind, begin, end));
+    }
+}
+
+#[test]
 fn next_token_repeats_query_size_errors() {
     let mut lexer = Lexer::with_max_query_size("123", 1);
     let first = lexer.next_token();
@@ -260,10 +275,15 @@ fn lexer_is_send() {
 }
 
 #[test]
+fn lexer_is_fused() {
+    fn assert_fused<T: std::iter::FusedIterator>(_: &T) {}
+    assert_fused(&Lexer::new("SELECT 1"));
+}
+
+#[test]
 fn byte_inputs_preserve_token_invariants() {
-    // Heap-backed inputs expose native overreads to ASan.
-    let check = |input: Box<[u8]>| {
-        let mut lexer = Lexer::new(&input);
+    let iterate = |input: &[u8]| {
+        let mut lexer = Lexer::new(input);
         let mut offset = 0;
         for _ in 0..=input.len() {
             let Some(token) = lexer.next() else {
@@ -284,6 +304,25 @@ fn byte_inputs_preserve_token_invariants() {
             offset = token.end;
         }
         panic!("iterator did not terminate for {input:?}");
+    };
+    // The raw stream goes on past errors, where tokens need not tile the input, but
+    // every call before `EndOfStream` still advances the lexer by at least one byte.
+    let raw = |input: &[u8]| {
+        let mut lexer = Lexer::new(input);
+        for _ in 0..=input.len() {
+            let token = lexer.next_token();
+            assert_eq!(token.text, &input[token.begin..token.end], "{input:?}");
+            if token.kind.is_end() {
+                assert_eq!(token.begin, input.len(), "{input:?}");
+                return;
+            }
+        }
+        panic!("raw stream did not reach EndOfStream for {input:?}");
+    };
+    // Heap-backed inputs expose native overreads to ASan.
+    let check = |input: Box<[u8]>| {
+        iterate(&input);
+        raw(&input);
     };
 
     for byte in 0..=u8::MAX {
@@ -341,7 +380,8 @@ fn query_size_limits_follow_token_end_boundaries() {
     ] {
         let input: Box<[u8]> = input.into();
         let end = input.len();
-        for limit in [end - 1, end, end + 1] {
+        // Upstream caps `usize::MAX` at 1e9, still past these inputs.
+        for limit in [end - 1, end, end + 1, usize::MAX] {
             let mut lexer = Lexer::with_max_query_size(&input, limit);
             lexer.next_token();
             lexer.next_token();
