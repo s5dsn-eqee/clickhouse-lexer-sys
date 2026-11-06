@@ -42,7 +42,7 @@ impl TokenKind {
         !matches!(self, TokenKind::Whitespace | TokenKind::Comment)
     }
 
-    /// One of the `Error*` kinds, which end lexing.
+    /// One of the `Error*` kinds.
     pub fn is_error(self) -> bool {
         self > TokenKind::EndOfStream
     }
@@ -134,8 +134,7 @@ impl<'a> Lexer<'a> {
 
     /// The next token straight from the lexer, including `EndOfStream`.
     ///
-    /// Unlike iteration this never stops: after an error or the end of the input the
-    /// lexer keeps returning the same token.
+    /// Error tokens do not stop subsequent calls.
     pub fn next_token(&mut self) -> Token<'a> {
         let mut begin = std::ptr::null();
         let mut end = std::ptr::null();
