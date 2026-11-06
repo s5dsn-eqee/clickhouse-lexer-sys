@@ -20,7 +20,6 @@ fn main() {
     let upstream = Path::new(UPSTREAM);
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     println!("cargo:rerun-if-changed={UPSTREAM}");
-    println!("cargo:rerun-if-env-changed=CXX");
 
     compile(upstream, &out_dir);
     generate_token_kind(upstream, &out_dir);
@@ -59,7 +58,7 @@ fn compile(upstream: &Path, out_dir: &Path) {
         // Upstream's warnings would otherwise print on every dependent build.
         .warnings(false);
     // ClickHouse supports only clang; GCC rejects LexerStandalone.h's `namespace std`.
-    if env::var_os("CXX").is_none() {
+    if !build.get_compiler().is_like_clang() {
         build.compiler("clang++");
     }
     if let Err(err) = build.try_compile("clickhouse_lexer") {
