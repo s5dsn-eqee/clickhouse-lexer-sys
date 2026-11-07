@@ -41,13 +41,15 @@ every byte up to the end of the last token belongs to exactly one token, whitesp
 and comments included. `begin` and `end` are byte offsets, `text` is the covered
 bytes, and `text_str()` decodes it when it is valid UTF-8. Iteration ends after the
 first error token, which is yielded, or at the end of the input, where
-`TokenKind::EndOfStream` is not yielded; `Lexer::next_token` exposes the raw
-stream including `EndOfStream`.
+`TokenKind::EndOfStream` is not yielded. `Lexer::next_token` exposes the raw
+stream including `EndOfStream`. It keeps lexing after an error, though later tokens
+may overlap the error token. Once a token ends past the query size limit, every later
+call returns `ErrorMaxQuerySizeExceeded`, so `EndOfStream` never comes.
 
 | Item | Description |
 |---|---|
 | `Lexer::new(input)` | Lex a `&str` or `&[u8]`. |
-| `Lexer::with_max_query_size(input, n)` | Stop with `ErrorMaxQuerySizeExceeded` past `n` bytes. |
+| `Lexer::with_max_query_size(input, n)` | Stop with `ErrorMaxQuerySizeExceeded` past `n` bytes; `0` means no limit, and upstream caps `n` at 1 000 000 000. |
 | `TokenKind` | The upstream `TokenType` enum, same names, same order. |
 | `TokenKind::{is_significant, is_error, is_end}` | The upstream predicates. |
 | `TokenKind::{from_raw, name, ALL}` | Conversions for the raw C API. |
@@ -59,12 +61,12 @@ a sync then lands in a patch release.
 
 ## How this repository is synced
 
-[`upstream/`](upstream/) holds the lexer sources verbatim from the `upstream/`
+[`upstream/`](https://github.com/s5dsn-eqee/clickhouse-lexer-sys/tree/main/upstream) holds the lexer sources verbatim from the `upstream/`
 directory of a clickhouse-lexer release, which in turn mirrors `src/Parsers` of
 ClickHouse. `upstream/VERSION` names that release and `upstream/COMMIT` the
 ClickHouse commit it was taken from.
 
-The [Sync workflow](.github/workflows/sync.yml) runs weekly:
+The [Sync workflow](https://github.com/s5dsn-eqee/clickhouse-lexer-sys/blob/main/.github/workflows/sync.yml) runs weekly:
 
 1. `scripts/sync.sh` copies `upstream/` from the latest clickhouse-lexer release and
    stops if nothing changed.
@@ -79,7 +81,7 @@ git tag "v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].ve
 git push --tags
 ```
 
-The [Release workflow](.github/workflows/release.yml) checks that the tag matches
+The [Release workflow](https://github.com/s5dsn-eqee/clickhouse-lexer-sys/blob/main/.github/workflows/release.yml) checks that the tag matches
 `Cargo.toml` and sits on `main`, runs CI, publishes to crates.io through
 [trusted publishing](https://crates.io/docs/trusted-publishing), and creates the
 GitHub release. One-time setup: publish the first version by hand with

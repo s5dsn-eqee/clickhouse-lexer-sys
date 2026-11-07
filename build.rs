@@ -86,9 +86,12 @@ fn parse_token_types(lexer_h: &str) -> Vec<TokenType> {
         "APPLY_FOR_TOKENS not found in Lexer.h"
     );
 
-    let mut entries = Vec::new();
+    let mut entries: Vec<TokenType> = Vec::new();
     let mut pending_doc = Vec::new();
+    // Indentation of the latest entry, while the lines after it continue it.
+    let mut entry_indent = None;
     for line in lines {
+        let indent = line.len() - line.trim_start().len();
         let body = line.trim().trim_end_matches('\\').trim();
         if let Some(name) = body
             .strip_prefix("M(")
@@ -101,8 +104,19 @@ fn parse_token_types(lexer_h: &str) -> Vec<TokenType> {
                 name: name.to_string(),
                 doc,
             });
+            entry_indent = Some(indent);
         } else {
-            pending_doc.extend(doc_comment(body));
+            let doc = doc_comment(body);
+            // A comment aligned past the `M(` column, as the second line of `Dot`'s,
+            // continues the entry above; any other comment introduces the next entry.
+            let continues = doc.is_some() && entry_indent.is_some_and(|entry| indent > entry);
+            match entries.last_mut() {
+                Some(last) if continues => last.doc.extend(doc),
+                _ => {
+                    pending_doc.extend(doc);
+                    entry_indent = None;
+                }
+            }
         }
         if !line.trim_end().ends_with('\\') {
             break;
