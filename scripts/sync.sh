@@ -14,9 +14,16 @@ cd "$(dirname "$0")/.."
 REPO=ClickHouse/clickhouse-lexer
 FILES=(Lexer.cpp Lexer.h LexerStandalone.h clickhouse_lexer.h COMMIT)
 
+# Unauthenticated API calls are limited to 60/hour per IP, which shared CI runners
+# exhaust (HTTP 403); authenticate when a token is available.
+AUTH=()
+if [ -n "${GH_TOKEN:-}" ]; then
+    AUTH=(-H "Authorization: Bearer $GH_TOKEN")
+fi
+
 TAG="${1:-}"
 if [ -z "$TAG" ]; then
-    TAG=$(curl -sSf "https://api.github.com/repos/$REPO/releases/latest" \
+    TAG=$(curl -sSf ${AUTH[@]+"${AUTH[@]}"} "https://api.github.com/repos/$REPO/releases/latest" \
         | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 fi
 [ -n "$TAG" ] || { echo "could not determine the latest $REPO release" >&2; exit 1; }
